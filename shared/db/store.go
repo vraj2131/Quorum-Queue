@@ -172,6 +172,51 @@ func (s *Store) FailJob(ctx context.Context, jobID uuid.UUID, workerID string, e
 	return tx.Commit()
 }
 
+// RequeueStuckJobs identifies jobs with expired heartbeats and either requeues them or marks them failed if max attempts reached.
+func (s *Store) RequeueStuckJobs(ctx context.Context, heartbeatTimeout time.Duration) (int, error) {
+	cutoff := time.Now().UTC().Add(-heartbeatTimeout)
+	now := time.Now().UTC()
+
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin requeue tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// 1. Mark jobs that exceeded max_attempts as failed
+	failQuery := `
+		UPDATE jobs
+		SET status = $1, updated_at = $2
+		WHERE status = $3 AND last_heartbeat < $4 AND attempts >= max_attempts
+	`
+	_, err = tx.ExecContext(ctx, failQuery, models.StatusFailed, now, models.StatusRunning, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("failed to mark exhausted stuck jobs as failed: %w", err)
+	}
+
+	// 2. Requeue remaining stuck jobs
+	requeueQuery := `
+		UPDATE jobs
+		SET status = $1, worker_id = NULL, updated_at = $2
+		WHERE status = $3 AND last_heartbeat < $4 AND attempts < max_attempts
+	`
+	res, err := tx.ExecContext(ctx, requeueQuery, models.StatusQueued, now, models.StatusRunning, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("failed to requeue stuck jobs: %w", err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to count requeued jobs: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit requeue tx: %w", err)
+	}
+
+	return int(rowsAffected), nil
+}
+
 func (s *Store) GetQueueDepth(ctx context.Context) (int, error) {
 	var count int
 	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM jobs WHERE status = $1`, models.StatusQueued).Scan(&count)
