@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional
 import psycopg
 from psycopg.rows import dict_row
-from api.app.config import settings
+from app.config import settings
 
 
 def get_db_connection():

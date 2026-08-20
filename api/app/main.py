@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from api.app.routes.jobs import router as jobs_router
+from app.routes.jobs import router as jobs_router
 
 app = FastAPI(
     title="forge Job Submission API",
