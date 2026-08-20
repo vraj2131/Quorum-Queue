@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/forge/shared/db"
+	"github.com/forge/shared/metrics"
 	"github.com/forge/shared/models"
 	"github.com/forge/worker/executor"
 )
@@ -94,12 +95,14 @@ func (wp *WorkerPool) workerLoop(slotID string) {
 				continue
 			}
 
+			metrics.JobsClaimedTotal.WithLabelValues(slotID).Inc()
 			wp.processJob(slotID, job)
 		}
 	}
 }
 
 func (wp *WorkerPool) processJob(slotID string, job *models.Job) {
+	startTime := time.Now()
 	wp.logger.Info("Claimed job successfully", "worker_slot", slotID, "job_id", job.ID.String())
 
 	jobCtx, jobCancel := context.WithCancel(wp.ctx)
@@ -129,18 +132,27 @@ func (wp *WorkerPool) processJob(slotID string, job *models.Job) {
 	}()
 
 	execErr := wp.exec.Execute(jobCtx, job)
+	duration := time.Since(startTime).Seconds()
 
 	jobCancel()
 	hbWg.Wait()
 
-	if wp.store != nil {
-		if execErr != nil {
-			wp.logger.Error("Job execution failed", "job_id", job.ID.String(), "error", execErr)
+	if execErr != nil {
+		metrics.JobsCompletedTotal.WithLabelValues("failed", slotID).Inc()
+		metrics.JobExecutionDuration.WithLabelValues("failed").Observe(duration)
+
+		wp.logger.Error("Job execution failed", "job_id", job.ID.String(), "error", execErr)
+		if wp.store != nil {
 			if err := wp.store.FailJob(context.Background(), job.ID, slotID, execErr.Error()); err != nil {
 				wp.logger.Error("Failed to mark job failed", "job_id", job.ID.String(), "error", err)
 			}
-		} else {
-			wp.logger.Info("Job completed successfully", "job_id", job.ID.String())
+		}
+	} else {
+		metrics.JobsCompletedTotal.WithLabelValues("succeeded", slotID).Inc()
+		metrics.JobExecutionDuration.WithLabelValues("succeeded").Observe(duration)
+
+		wp.logger.Info("Job completed successfully", "job_id", job.ID.String())
+		if wp.store != nil {
 			if err := wp.store.CompleteJob(context.Background(), job.ID, slotID); err != nil {
 				wp.logger.Error("Failed to mark job complete", "job_id", job.ID.String(), "error", err)
 			}

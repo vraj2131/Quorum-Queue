@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/forge/scheduler/election"
 	"github.com/forge/scheduler/reaper"
 	"github.com/forge/shared/db"
+	"github.com/forge/shared/metrics"
 	"github.com/google/uuid"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -34,6 +36,21 @@ func main() {
 		etcdEndpointsEnv = "localhost:2379"
 	}
 	endpoints := strings.Split(etcdEndpointsEnv, ",")
+
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "2113"
+	}
+
+	// Start Prometheus metrics server
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", metrics.MetricsHandler())
+		logger.Info("Starting Prometheus metrics server", "port", metricsPort)
+		if err := http.ListenAndServe(":"+metricsPort, mux); err != nil && err != http.ErrServerClosed {
+			logger.Error("Metrics server failed", "error", err)
+		}
+	}()
 
 	database, err := db.Open(dbURL)
 	if err != nil {
@@ -74,6 +91,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			default:
+				metrics.LeaderStatus.WithLabelValues(schedulerID).Set(0)
 				logger.Info("Campaigning for leadership...", "scheduler_id", schedulerID)
 				if err := elector.Campaign(ctx); err != nil {
 					logger.Error("Campaign lost or error", "error", err)
@@ -81,11 +99,13 @@ func main() {
 					continue
 				}
 
-				// Elected leader: start reaper
+				// Elected leader: set metric to 1 and start reaper
+				metrics.LeaderStatus.WithLabelValues(schedulerID).Set(1)
 				reap.Start()
 
 				// Wait until campaign/session finishes or signal received
 				<-ctx.Done()
+				metrics.LeaderStatus.WithLabelValues(schedulerID).Set(0)
 				reap.Stop()
 				_ = elector.Resign(context.Background())
 				return
