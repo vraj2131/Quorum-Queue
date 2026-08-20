@@ -2,12 +2,14 @@ package main
 
 import (
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/forge/shared/db"
+	"github.com/forge/shared/metrics"
 	"github.com/forge/worker/executor"
 	"github.com/forge/worker/poller"
 	"github.com/google/uuid"
@@ -25,6 +27,21 @@ func main() {
 	if workerID == "" {
 		workerID = "worker-" + uuid.New().String()[:8]
 	}
+
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "2112"
+	}
+
+	// Start Prometheus metrics server
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", metrics.MetricsHandler())
+		logger.Info("Starting Prometheus metrics server", "port", metricsPort)
+		if err := http.ListenAndServe(":"+metricsPort, mux); err != nil && err != http.ErrServerClosed {
+			logger.Error("Metrics server failed", "error", err)
+		}
+	}()
 
 	database, err := db.Open(dbURL)
 	if err != nil {
