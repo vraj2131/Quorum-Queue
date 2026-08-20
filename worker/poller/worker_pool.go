@@ -21,13 +21,13 @@ type Config struct {
 }
 
 type WorkerPool struct {
-	cfg      Config
-	store    *db.Store
-	exec     *executor.Executor
-	logger   *slog.Logger
-	wg       sync.WaitGroup
-	ctx      context.Context
-	cancel   context.CancelFunc
+	cfg    Config
+	store  *db.Store
+	exec   *executor.Executor
+	logger *slog.Logger
+	wg     sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func NewWorkerPool(cfg Config, store *db.Store, exec *executor.Executor, logger *slog.Logger) *WorkerPool {
@@ -79,6 +79,9 @@ func (wp *WorkerPool) workerLoop(slotID string) {
 		case <-wp.ctx.Done():
 			return
 		case <-ticker.C:
+			if wp.store == nil {
+				continue
+			}
 			job, err := wp.store.ClaimNextJob(wp.ctx, slotID)
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {
@@ -99,11 +102,9 @@ func (wp *WorkerPool) workerLoop(slotID string) {
 func (wp *WorkerPool) processJob(slotID string, job *models.Job) {
 	wp.logger.Info("Claimed job successfully", "worker_slot", slotID, "job_id", job.ID.String())
 
-	// Context for heartbeats and execution
 	jobCtx, jobCancel := context.WithCancel(wp.ctx)
 	defer jobCancel()
 
-	// Start background heartbeat goroutine with synchronized WaitGroup
 	var hbWg sync.WaitGroup
 	hbWg.Add(1)
 	go func() {
@@ -116,32 +117,33 @@ func (wp *WorkerPool) processJob(slotID string, job *models.Job) {
 			case <-jobCtx.Done():
 				return
 			case <-hbTicker.C:
-				if err := wp.store.SendHeartbeat(jobCtx, slotID, job.ID); err != nil {
-					if !errors.Is(err, context.Canceled) {
-						wp.logger.Warn("Failed to send heartbeat", "worker_slot", slotID, "job_id", job.ID.String(), "error", err)
+				if wp.store != nil {
+					if err := wp.store.SendHeartbeat(jobCtx, slotID, job.ID); err != nil {
+						if !errors.Is(err, context.Canceled) {
+							wp.logger.Warn("Failed to send heartbeat", "worker_slot", slotID, "job_id", job.ID.String(), "error", err)
+						}
 					}
 				}
 			}
 		}
 	}()
 
-	// Execute job
 	execErr := wp.exec.Execute(jobCtx, job)
 
-	// Stop heartbeat loop before updating final status
 	jobCancel()
 	hbWg.Wait()
 
-	// Final status transition
-	if execErr != nil {
-		wp.logger.Error("Job execution failed", "job_id", job.ID.String(), "error", execErr)
-		if err := wp.store.FailJob(context.Background(), job.ID, slotID, execErr.Error()); err != nil {
-			wp.logger.Error("Failed to mark job failed", "job_id", job.ID.String(), "error", err)
-		}
-	} else {
-		wp.logger.Info("Job completed successfully", "job_id", job.ID.String())
-		if err := wp.store.CompleteJob(context.Background(), job.ID, slotID); err != nil {
-			wp.logger.Error("Failed to mark job complete", "job_id", job.ID.String(), "error", err)
+	if wp.store != nil {
+		if execErr != nil {
+			wp.logger.Error("Job execution failed", "job_id", job.ID.String(), "error", execErr)
+			if err := wp.store.FailJob(context.Background(), job.ID, slotID, execErr.Error()); err != nil {
+				wp.logger.Error("Failed to mark job failed", "job_id", job.ID.String(), "error", err)
+			}
+		} else {
+			wp.logger.Info("Job completed successfully", "job_id", job.ID.String())
+			if err := wp.store.CompleteJob(context.Background(), job.ID, slotID); err != nil {
+				wp.logger.Error("Failed to mark job complete", "job_id", job.ID.String(), "error", err)
+			}
 		}
 	}
 }

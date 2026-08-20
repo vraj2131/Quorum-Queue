@@ -1,8 +1,8 @@
 from typing import Any, Dict
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
-from api.app.config import settings
-from api.app.db import create_job, get_db_connection, get_job_by_id, get_queue_depth
+from app.config import settings
+from app.db import create_job, get_db_connection, get_job_by_id, get_queue_depth
 
 router = APIRouter(prefix="/v1/jobs", tags=["Jobs"])
 
@@ -15,7 +15,7 @@ class JobCreateRequest(BaseModel):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def submit_job(req: JobCreateRequest, response: Response):
+def submit_job(req: JobCreateRequest):
     try:
         conn = get_db_connection()
     except Exception as e:
@@ -28,10 +28,10 @@ def submit_job(req: JobCreateRequest, response: Response):
         # Check backpressure / queue depth
         depth = get_queue_depth(conn)
         if depth >= settings.max_queue_depth:
-            response.headers["Retry-After"] = "5"
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Queue depth ({depth}) exceeds capacity limit ({settings.max_queue_depth}). Try again later.",
+                headers={"Retry-After": "5"},
             )
 
         job = create_job(
