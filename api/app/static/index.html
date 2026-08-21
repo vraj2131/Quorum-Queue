@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>forge — Distributed Task Queue & Multi-Shard Control Plane</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #090d16;
+      --bg-card: rgba(18, 24, 38, 0.75);
+      --border-card: rgba(255, 255, 255, 0.08);
+      --accent-cyan: #00f2fe;
+      --accent-blue: #4facfe;
+      --accent-purple: #7f00ff;
+      --accent-green: #00e676;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(79, 172, 254, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(127, 0, 255, 0.12) 0%, transparent 40%);
+      overflow-x: hidden;
+    }
+
+    header {
+      padding: 2.5rem 2rem 1.5rem;
+      text-align: center;
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 1rem;
+      background: rgba(0, 242, 254, 0.1);
+      border: 1px solid rgba(0, 242, 254, 0.25);
+      border-radius: 9999px;
+      color: var(--accent-cyan);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--accent-cyan);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--accent-cyan);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 3.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, var(--accent-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.75rem;
+      letter-spacing: -0.02em;
+    }
+
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 1.15rem;
+      max-width: 750px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    main {
+      flex: 1;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1.5rem 2rem 3rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2.5rem;
+    }
+
+    /* Grid of 3 Main Navigation Cards */
+    .portal-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .portal-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 16px;
+      padding: 2rem;
+      backdrop-filter: blur(16px);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .portal-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .portal-card:hover {
+      transform: translateY(-6px);
+      border-color: rgba(0, 242, 254, 0.4);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5), 0 0 20px rgba(0, 242, 254, 0.15);
+    }
+
+    .portal-card:hover::before {
+      opacity: 1;
+    }
+
+    .card-icon {
+      font-size: 2.5rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .card-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-desc {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.5;
+      margin-bottom: 1.5rem;
+    }
+
+    .card-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Interactive Live Control Panel */
+    .interactive-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 900px) {
+      .interactive-section { grid-template-columns: 1fr; }
+    }
+
+    .panel-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: 16px;
+      padding: 1.75rem;
+      backdrop-filter: blur(16px);
+    }
+
+    .panel-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      background: rgba(10, 15, 26, 0.8);
+      border: 1px solid var(--border-card);
+      border-radius: 8px;
+      color: #fff;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus, select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    button.btn-submit {
+      width: 100%;
+      padding: 0.85rem;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      border: none;
+      border-radius: 8px;
+      color: #090d16;
+      font-family: 'Outfit', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      margin-top: 0.5rem;
+    }
+
+    button.btn-submit:hover { opacity: 0.9; transform: scale(0.99); }
+
+    .shard-badge-container {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .shard-box {
+      background: rgba(10, 15, 26, 0.6);
+      border: 1px solid var(--border-card);
+      border-radius: 10px;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .shard-name {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      margin-bottom: 0.3rem;
+    }
+
+    .shard-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+    }
+
+    #result-console {
+      background: #050811;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--accent-green);
+      min-height: 120px;
+      max-height: 160px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border-card);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="badge">
+      <span class="badge-dot"></span> Cluster Online — 3 DB Shards Active
+    </div>
+    <h1>forge Control Plane</h1>
+    <p class="subtitle">
+      Distributed Task Queue with etcd Leader Election, Consistent Hash Sharding (256 vnodes), and Dedicated Worker Pools.
+    </p>
+  </header>
+
+  <main>
+    <!-- Top 3 Navigation Portals -->
+    <div class="portal-grid">
+      <a href="/docs" target="_blank" class="portal-card">
+        <div>
+          <div class="card-icon">📖</div>
+          <div class="card-title">API Documentation <span>&rarr;</span></div>
+          <div class="card-desc">Interactive Swagger UI to test /v1/jobs submission, health checks, and per-shard capacity endpoints.</div>
+        </div>
+        <div class="card-action">Open Swagger UI</div>
+      </a>
+
+      <a href="http://150.136.216.103:3000" target="_blank" class="portal-card">
+        <div>
+          <div class="card-icon">📊</div>
+          <div class="card-title">Grafana Dashboard <span>&rarr;</span></div>
+          <div class="card-desc">Live real-time metrics monitoring active leader status, queue depth, throughput/sec, and latency histograms.</div>
+        </div>
+        <div class="card-action">View Live Metrics</div>
+      </a>
+
+      <a href="http://150.136.216.103:8080" target="_blank" class="portal-card">
+        <div>
+          <div class="card-icon">🗄️</div>
+          <div class="card-title">Database Web Explorer <span>&rarr;</span></div>
+          <div class="card-desc">Adminer browser interface to inspect raw SQL tables across postgres_shard_1, postgres_shard_2, and postgres_shard_3.</div>
+        </div>
+        <div class="card-action">Explore SQL Databases</div>
+      </a>
+    </div>
+
+    <!-- Live Interactive Submission & Queue Depth Widget -->
+    <div class="interactive-section">
+      <!-- Left: Submit Job Form -->
+      <div class="panel-box">
+        <div class="panel-title">⚡ Submit Live Test Job</div>
+        <form id="job-form">
+          <div class="form-group">
+            <label>Tenant ID (Consistent Hash Key)</label>
+            <select id="tenant_id">
+              <option value="tenant-alpha">tenant-alpha (Shard Router)</option>
+              <option value="tenant-beta">tenant-beta (Shard Router)</option>
+              <option value="tenant-gamma">tenant-gamma (Shard Router)</option>
+              <option value="tenant-acme">tenant-acme (Shard Router)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Idempotency Key</label>
+            <input type="text" id="idempotency_key" value="" placeholder="auto-generated key">
+          </div>
+
+          <div class="form-group">
+            <label>Priority (-10 to 10)</label>
+            <input type="number" id="priority" value="5" min="-10" max="10">
+          </div>
+
+          <button type="submit" class="btn-submit">Submit Job to Sharded Queue</button>
+        </form>
+
+        <div style="margin-top: 1rem;">
+          <label>Submission Output Response</label>
+          <div id="result-console">Ready. Click submit to route a job to its target database shard.</div>
+        </div>
+      </div>
+
+      <!-- Right: Real-time Queue Depth Monitor -->
+      <div class="panel-box">
+        <div class="panel-title">📈 Real-Time Multi-Shard Queue Depth</div>
+        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+          Dynamic queue depth across PostgreSQL shards, calculated via consistent hashing.
+        </p>
+
+        <div class="shard-badge-container">
+          <div class="shard-box">
+            <div class="shard-name">Shard 1</div>
+            <div class="shard-value" id="depth-shard-1">0</div>
+          </div>
+          <div class="shard-box">
+            <div class="shard-name">Shard 2</div>
+            <div class="shard-value" id="depth-shard-2">0</div>
+          </div>
+          <div class="shard-box">
+            <div class="shard-name">Shard 3</div>
+            <div class="shard-value" id="depth-shard-3">0</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 1.5rem; background: rgba(10, 15, 26, 0.6); padding: 1rem; border-radius: 10px; border: 1px solid var(--border-card);">
+          <div style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 0.5rem;">
+            <span>Total Queued Jobs:</span>
+            <strong id="total-depth" style="color: var(--accent-cyan);">0</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.9rem;">
+            <span>Max Capacity per Shard:</span>
+            <strong>1,000</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    forge Distributed Job Scheduler & Queue &mdash; Deployed on Oracle Cloud Infrastructure
+  </footer>
+
+  <script>
+    document.getElementById('idempotency_key').value = 'job-' + Math.random().toString(36).substring(2, 9);
+
+    async function updateQueueDepth() {
+      try {
+        const res = await fetch('/v1/jobs/queue/depth');
+        const data = await res.json();
+        document.getElementById('total-depth').innerText = data.queue_depth || 0;
+        if (data.per_shard) {
+          document.getElementById('depth-shard-1').innerText = data.per_shard['shard-1'] ?? 0;
+          document.getElementById('depth-shard-2').innerText = data.per_shard['shard-2'] ?? 0;
+          document.getElementById('depth-shard-3').innerText = data.per_shard['shard-3'] ?? 0;
+        }
+      } catch (e) {
+        console.error('Failed to fetch depth', e);
+      }
+    }
+
+    document.getElementById('job-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const tenant_id = document.getElementById('tenant_id').value;
+      const idempotency_key = document.getElementById('idempotency_key').value || ('job-' + Math.random().toString(36).substring(2, 9));
+      const priority = parseInt(document.getElementById('priority').value) || 0;
+
+      const consoleEl = document.getElementById('result-console');
+      consoleEl.innerText = 'Submitting job...';
+
+      try {
+        const res = await fetch('/v1/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idempotency_key, tenant_id, priority, payload: { source: 'web_portal', timestamp: new Date().toISOString() } })
+        });
+        const data = await res.json();
+        consoleEl.innerText = JSON.stringify(data, null, 2);
+        document.getElementById('idempotency_key').value = 'job-' + Math.random().toString(36).substring(2, 9);
+        updateQueueDepth();
+      } catch (err) {
+        consoleEl.innerText = 'Error: ' + err.message;
+      }
+    });
+
+    setInterval(updateQueueDepth, 2000);
+    updateQueueDepth();
+  </script>
+</body>
+</html>
