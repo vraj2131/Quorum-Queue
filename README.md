@@ -20,12 +20,12 @@ It features **etcd Raft leader election**, **active leadership re-validation to 
 ### 1. Live Job Submission & Consistent Hash Routing
 Submit multi-tenant tasks directly from the web browser. The in-process router hashes `tenant_id` across 256 virtual nodes and assigns the task to a specific PostgreSQL shard (`shard-1`, `shard-2`, `shard-3`).
 
-![Submit Live Test Job](docs/screenshots/02-job-submission.png)
+![Submit Live Test Job](docs/screenshots/01-job-submission.png)
 
 ### 2. Real-Time Multi-Shard Queue Depth Monitoring
 Dynamic queue depth calculated across database shards. Updates automatically every 2 seconds.
 
-![Real-Time Queue Depth](docs/screenshots/01-queue-depth.png)
+![Real-Time Queue Depth](docs/screenshots/02-queue-depth.png)
 
 ### 3. Live Grafana Metrics & Active Leader Status
 Live tracking of total jobs processed (**3,892+ jobs**), throughput per second (~100 jobs/sec), and active etcd Raft scheduler leader status.
