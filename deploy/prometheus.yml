@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 2s
+  evaluation_interval: 2s
+
+scrape_configs:
+  - job_name: 'forge-api'
+    static_configs:
+      - targets: ['api:8000']
+
+  - job_name: 'forge-schedulers'
+    static_configs:
+      - targets: ['scheduler1:2113', 'scheduler2:2113']
+
+  - job_name: 'forge-workers'
+    static_configs:
+      - targets: ['worker1:2112', 'worker2:2112', 'worker3:2112']

@@ -1,0 +1,17 @@
+:80 {
+    handle /v1/* {
+        reverse_proxy api:8000
+    }
+    handle /docs* {
+        reverse_proxy api:8000
+    }
+    handle /openapi.json {
+        reverse_proxy api:8000
+    }
+    handle /healthz {
+        reverse_proxy api:8000
+    }
+    handle {
+        reverse_proxy api:8000
+    }
+}
