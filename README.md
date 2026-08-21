@@ -6,11 +6,12 @@ It features **etcd Raft leader election**, **active leadership re-validation to 
 
 ---
 
-## 🌐 Live Deployed Demo (Oracle Cloud Infrastructure)
+## 🌐 Live Deployed Public Demo (Oracle Cloud Infrastructure)
 
-- 📖 **Interactive Swagger API & Docs**: `http://150.136.216.103:8000/docs` or `http://150.136.216.103/docs`
-- 📊 **Live Grafana Metrics Dashboard**: `http://150.136.216.103:3000` *(Anonymous Read-Only Access)*
-- 🗄️ **Adminer Database Web GUI**: `http://150.136.216.103:8080` *(Connect to `postgres_shard_1`, `postgres_shard_2`, `postgres_shard_3`)*
+- ⚡ **Main Interactive Control Portal**: [`http://150.136.216.103:8000/`](http://150.136.216.103:8000/) *(Single-click hub with live job submission & real-time queue depth)*
+- 📖 **Interactive Swagger API & Docs**: [`http://150.136.216.103:8000/docs`](http://150.136.216.103:8000/docs)
+- 📊 **Live Grafana Metrics Dashboard**: [`http://150.136.216.103:3000`](http://150.136.216.103:3000) *(Anonymous Read-Only Access)*
+- 🗄️ **Adminer Database Web GUI**: [`http://150.136.216.103:8080`](http://150.136.216.103:8080) *(Connect to `postgres_shard_1`, `postgres_shard_2`, `postgres_shard_3`)*
 
 ---
 
