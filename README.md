@@ -20,22 +20,22 @@ It features **etcd Raft leader election**, **active leadership re-validation to 
 ### 1. Live Job Submission & Consistent Hash Routing
 Submit multi-tenant tasks directly from the web browser. The in-process router hashes `tenant_id` across 256 virtual nodes and assigns the task to a specific PostgreSQL shard (`shard-1`, `shard-2`, `shard-3`).
 
-![Submit Live Test Job](docs/screenshots/01-job-submission.png)
+![Submit Live Test Job](docs/screenshots/submit-live-job.png)
 
 ### 2. Real-Time Multi-Shard Queue Depth Monitoring
 Dynamic queue depth calculated across database shards. Updates automatically every 2 seconds.
 
-![Real-Time Queue Depth](docs/screenshots/02-queue-depth.png)
+![Real-Time Queue Depth](docs/screenshots/queue-depth-metrics.png)
 
 ### 3. Live Grafana Metrics & Active Leader Status
 Live tracking of total jobs processed (**3,892+ jobs**), throughput per second (~100 jobs/sec), and active etcd Raft scheduler leader status.
 
-![Grafana Metrics Dashboard](docs/screenshots/03-grafana-metrics.png)
+![Grafana Metrics Dashboard](docs/screenshots/grafana-overview-dashboard.png)
 
 ### 4. Multi-Database Sharded Storage (Adminer Web GUI)
 Direct SQL inspection of partitioned PostgreSQL tables showing `tenant_id`, `idempotency_key`, `status` (`succeeded`), and assigned `worker_id`.
 
-![Adminer Sharded Database](docs/screenshots/04-adminer-db.png)
+![Adminer Sharded Database](docs/screenshots/adminer-sql-sharded-db.png)
 
 ---
 
