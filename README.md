@@ -6,18 +6,77 @@ It features **etcd Raft leader election**, **active leadership re-validation to 
 
 ---
 
-## 🌐 Live Deployed Public Demo (Oracle Cloud Infrastructure)
+## 🌐 Live Deployed Public Stack (Oracle Cloud Infrastructure)
 
 - ⚡ **Main Interactive Control Portal**: [`http://150.136.216.103:8000/`](http://150.136.216.103:8000/) *(Single-click hub with live job submission & real-time queue depth)*
-- 📖 **Interactive Swagger API & Docs**: [`http://150.136.216.103:8000/docs`](http://150.136.216.103:8000/docs)
 - 📊 **Live Grafana Metrics Dashboard**: [`http://150.136.216.103:3000`](http://150.136.216.103:3000) *(Anonymous Read-Only Access)*
+- 📖 **Interactive Swagger API & Docs**: [`http://150.136.216.103:8000/docs`](http://150.136.216.103:8000/docs)
 - 🗄️ **Adminer Database Web GUI**: [`http://150.136.216.103:8080`](http://150.136.216.103:8080) *(Connect to `postgres_shard_1`, `postgres_shard_2`, `postgres_shard_3`)*
+
+---
+
+## 🖼️ Visual System Tour
+
+### 1. Live Job Submission & Consistent Hash Routing
+Submit multi-tenant tasks directly from the web browser. The in-process router hashes `tenant_id` across 256 virtual nodes and assigns the task to a specific PostgreSQL shard (`shard-1`, `shard-2`, `shard-3`).
+
+![Submit Live Test Job](docs/screenshots/02-job-submission.png)
+
+### 2. Real-Time Multi-Shard Queue Depth Monitoring
+Dynamic queue depth calculated across database shards. Updates automatically every 2 seconds.
+
+![Real-Time Queue Depth](docs/screenshots/01-queue-depth.png)
+
+### 3. Live Grafana Metrics & Active Leader Status
+Live tracking of total jobs processed (**3,892+ jobs**), throughput per second (~100 jobs/sec), and active etcd Raft scheduler leader status.
+
+![Grafana Metrics Dashboard](docs/screenshots/03-grafana-metrics.png)
+
+### 4. Multi-Database Sharded Storage (Adminer Web GUI)
+Direct SQL inspection of partitioned PostgreSQL tables showing `tenant_id`, `idempotency_key`, `status` (`succeeded`), and assigned `worker_id`.
+
+![Adminer Sharded Database](docs/screenshots/04-adminer-db.png)
+
+---
+
+## 🧭 Step-by-Step Live User Testing Guide
+
+Follow these steps to manually test and explore the live system end-to-end:
+
+### Step 1: Open the Control Portal
+Navigate to [`http://150.136.216.103:8000/`](http://150.136.216.103:8000/).
+
+### Step 2: Submit Live Jobs & Test Shard Router
+1. Under **Submit Live Test Job**, select **`tenant-alpha`**.
+2. Click **Submit Job to Sharded Queue**.
+3. Observe the output JSON returning `shard-3` (`postgres_shard_3`).
+4. Now select **`tenant-beta`** and submit—observe how consistent hashing routes it to `shard-1` (`postgres_shard_1`)!
+
+### Step 3: Run High-Throughput Load Traffic
+To stream high-volume job traffic into the system, run our multi-threaded workload generator from your terminal:
+
+```bash
+# Submit 3,000 synthetic jobs in rapid parallel stream to the live cloud cluster
+python scripts/mass_load.py --url http://150.136.216.103:8000 --count 3000 --concurrency 50
+```
+
+### Step 4: Watch Live Metrics on Grafana
+Open [`http://150.136.216.103:3000`](http://150.136.216.103:3000) to see the throughput chart spike to ~100 jobs/sec and watch the **Total Jobs Processed** counter increment in real-time.
+
+### Step 5: Inspect Sharded SQL Databases
+Open [`http://150.136.216.103:8080`](http://150.136.216.103:8080):
+- **System**: `PostgreSQL`
+- **Server**: `postgres_shard_1` *(or `postgres_shard_2`, `postgres_shard_3`)*
+- **Username**: `postgres`
+- **Password**: `postgrespassword`
+- **Database**: `forge_shard_1`
+- Click **`select jobs`** on the left menu to view thousands of raw stored records across shards!
 
 ---
 
 ## 📦 Pip-Installable Client SDK (`forge-sdk`)
 
-Install directly from GitHub or local source:
+Install directly from GitHub:
 ```bash
 pip install "git+https://github.com/vraj2131/Quorum-Queue.git#subdirectory=sdk"
 ```
@@ -107,28 +166,14 @@ print(f"Final Job Status: {completed_job.status}")
 
 ## 🚀 Quickstart & One-Command Deploy
 
-### 1. Full Production Stack (with Grafana, Prometheus, Adminer, Caddy)
+### Full Production Stack (with Grafana, Prometheus, Adminer, Caddy)
 ```bash
 docker compose -f deploy/docker-compose.prod.yml up -d
 ```
 
-### 2. Multi-Database Sharded Cluster
+### Multi-Database Sharded Cluster
 ```bash
 docker compose -f deploy/docker-compose.sharded.yml up --build
-```
-
----
-
-## 🧪 Interactive CLI Demo & Failover Benchmark
-
-Run continuous multi-tenant workload generation or leader failover benchmarks:
-
-```bash
-# 1. Run continuous synthetic job workload
-python scripts/demo_harness.py --url http://150.136.216.103:8000 --workload
-
-# 2. Run automated leader failover test (kills leader container and measures recovery latency)
-python scripts/demo_harness.py --url http://150.136.216.103:8000 --failover
 ```
 
 ---
