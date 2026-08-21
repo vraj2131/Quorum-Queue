@@ -2,7 +2,49 @@
 
 `forge` is a high-performance, fault-tolerant distributed job scheduling and execution engine built with **Go**, **etcd**, **PostgreSQL**, and **Python (FastAPI + Client SDK)**.
 
-It features **etcd Raft leader election**, **active leadership re-validation to prevent split-brain traps**, **atomic database job claiming (`FOR UPDATE SKIP LOCKED`)**, **Multi-Database Consistent Hash Ring Sharding (256 virtual nodes)**, **dedicated worker shard pools**, and **parallel multi-shard dead-worker reaping**.
+It features **etcd Raft leader election**, **active leadership re-validation to prevent split-brain traps**, **atomic database job claiming (`FOR UPDATE SKIP LOCKED`)**, **Multi-Database Consistent Hash Ring Sharding (256 virtual nodes)**, **dedicated worker shard pools**, **auto-provisioned Grafana dashboards**, and **parallel multi-shard dead-worker reaping**.
+
+---
+
+## 🌐 Live Deployed Demo (Oracle Cloud Infrastructure)
+
+- 📖 **Interactive Swagger API & Docs**: `http://150.136.216.103:8000/docs` or `http://150.136.216.103/docs`
+- 📊 **Live Grafana Metrics Dashboard**: `http://150.136.216.103:3000` *(Anonymous Read-Only Access)*
+- 🗄️ **Adminer Database Web GUI**: `http://150.136.216.103:8080` *(Connect to `postgres_shard_1`, `postgres_shard_2`, `postgres_shard_3`)*
+
+---
+
+## 📦 Pip-Installable Client SDK (`forge-sdk`)
+
+Install directly from GitHub or local source:
+```bash
+pip install "git+https://github.com/vraj2131/Quorum-Queue.git#subdirectory=sdk"
+```
+
+**Python Usage Example**:
+```python
+from forge_sdk import ForgeClient
+
+# Connect to deployed cloud API
+client = ForgeClient(base_url="http://150.136.216.103:8000")
+
+# Submit job to specific tenant shard
+job = client.submit_job(
+    idempotency_key="order-task-101",
+    tenant_id="tenant-alpha",
+    payload={"type": "compute", "duration": "100ms"},
+    priority=5,
+)
+print(f"Submitted Job ID: {job.id} on Shard: {job.shard_id}")
+
+# Inspect total and per-shard queue depth
+depth = client.get_queue_depth()
+print("Per-Shard Queue Depth:", depth.per_shard)
+
+# Wait for completion
+completed_job = client.wait_for_job(job.id, timeout=10.0)
+print(f"Final Job Status: {completed_job.status}")
+```
 
 ---
 
@@ -47,7 +89,6 @@ It features **etcd Raft leader election**, **active leadership re-validation to 
 ### 1. Multi-Database Consistent Hash Ring Sharding
 - **Consistent Hash Router**: Implemented in Go (`shared/router/hash_ring.go`) and Python (`api/app/router.py`) using 256 virtual nodes per physical shard.
 - **Tenant Partitioning**: Jobs are partitioned deterministically across database shards by `tenant_id`, guaranteeing uniform load distribution without single-database bottlenecks.
-- **Dynamic Shard Discovery**: Services query dynamic shard maps and maintain lock-free routing tables synchronized via etcd Watches.
 
 ### 2. Dedicated Shard Worker Pools
 - Worker nodes register for dedicated database shards via `etcd` leases and configuration (`ASSIGNED_SHARDS="shard-1,shard-2"`).
@@ -55,56 +96,39 @@ It features **etcd Raft leader election**, **active leadership re-validation to 
 
 ### 3. etcd Leader Election & Active Re-Validation
 - Scheduler instances compete for leadership using `go.etcd.io/etcd/client/v3/concurrency`.
-- **Split-Brain Protection**: Before performing any reaper or dispatch operation, the scheduler actively re-validates its leadership against etcd. If a network partition or GC pause invalidates the etcd lease session, the node immediately steps down.
+- **Split-Brain Protection**: Before performing any reaper or dispatch operation, the scheduler actively re-validates its leadership against etcd.
 
 ### 4. Parallel Multi-Shard Dead-Worker Reaper
 - The active Scheduler Leader reads the active shard topology from etcd and spawns parallel background goroutines across all database shards.
 - Expired worker jobs (`last_heartbeat < now() - 10s`) are automatically requeued or transitioned to `failed` when `max_attempts` is reached.
 
-### 5. Atomic Job Claiming (Postgres `FOR UPDATE SKIP LOCKED`)
-- Workers poll PostgreSQL directly using atomic row-level locking:
-  ```sql
-  SELECT * FROM jobs
-  WHERE status = 'queued'
-  ORDER BY priority DESC, created_at ASC
-  LIMIT 1
-  FOR UPDATE SKIP LOCKED;
-  ```
-
-### 6. Observability & Backpressure
-- Returns `HTTP 429 Too Many Requests` with a `Retry-After: 5` header when queue depth exceeds capacity thresholds.
-- Exposes Prometheus metrics on `/metrics` (`forge_jobs_claimed_total`, `forge_jobs_completed_total`, `forge_job_execution_duration_seconds`, `forge_queue_depth`, `forge_leader_status`).
-
 ---
 
-## 🚀 Quickstart
+## 🚀 Quickstart & One-Command Deploy
 
-### 1. Multi-Database Sharded Cluster (Recommended)
-Spin up a 3-shard PostgreSQL cluster, 3-node etcd cluster, 2 schedulers, 3 workers, and the FastAPI submission service:
+### 1. Full Production Stack (with Grafana, Prometheus, Adminer, Caddy)
+```bash
+docker compose -f deploy/docker-compose.prod.yml up -d
+```
 
+### 2. Multi-Database Sharded Cluster
 ```bash
 docker compose -f deploy/docker-compose.sharded.yml up --build
 ```
 
-### 2. Single Database Cluster
-```bash
-docker compose -f deploy/docker-compose.yml up --build
-```
-
 ---
 
-## 🧪 Leader Failover Demo Instructions
+## 🧪 Interactive CLI Demo & Failover Benchmark
 
-1. Start the cluster:
-   ```bash
-   docker compose -f deploy/docker-compose.sharded.yml up
-   ```
-2. Identify the active leader in logs (`forge-scheduler-1` or `forge-scheduler-2`).
-3. Kill the leader container:
-   ```bash
-   docker kill forge-scheduler-1
-   ```
-4. **Failover Verification**: Within **~10 seconds** (etcd lease TTL), the standby scheduler instance detects lease expiration, wins the campaign, takes over leadership, and resumes multi-shard reaping seamlessly.
+Run continuous multi-tenant workload generation or leader failover benchmarks:
+
+```bash
+# 1. Run continuous synthetic job workload
+python scripts/demo_harness.py --url http://150.136.216.103:8000 --workload
+
+# 2. Run automated leader failover test (kills leader container and measures recovery latency)
+python scripts/demo_harness.py --url http://150.136.216.103:8000 --failover
+```
 
 ---
 
@@ -119,10 +143,3 @@ go test -v -race ./shared/... ./worker/... ./scheduler/...
 ```bash
 pytest -v api/tests/ sdk/tests/
 ```
-
----
-
-## ⚠️ Known Limitations & Tradeoffs
-
-- **At-Least-Once Execution**: Handlers must maintain idempotent side-effects.
-- **Resharding Drain Migration**: Adding new database shards marks virtual nodes as `DRAINING` to finish active jobs on old shards while new tenant submissions land on the new shard.
