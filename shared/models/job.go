@@ -17,6 +17,7 @@ const (
 type Job struct {
 	ID             uuid.UUID       `json:"id"`
 	IdempotencyKey string          `json:"idempotency_key"`
+	TenantID       string          `json:"tenant_id"`
 	Payload        json.RawMessage `json:"payload"`
 	Status         string          `json:"status"`
 	Priority       int16           `json:"priority"`
@@ -32,4 +33,10 @@ type WorkerHeartbeat struct {
 	WorkerID   string     `json:"worker_id"`
 	LastSeen   time.Time  `json:"last_seen"`
 	CurrentJob *uuid.UUID `json:"current_job,omitempty"`
+}
+
+type ShardInfo struct {
+	ID     string `json:"id"`
+	State  string `json:"state"` // "ACTIVE", "DRAINING", "INACTIVE"
+	DBURL  string `json:"db_url"`
 }

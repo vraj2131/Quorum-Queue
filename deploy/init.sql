@@ -5,6 +5,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE IF NOT EXISTS jobs (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     idempotency_key TEXT UNIQUE NOT NULL,
+    tenant_id       TEXT NOT NULL DEFAULT 'default',
     payload         JSONB NOT NULL,
     status          TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed')),
     priority        SMALLINT NOT NULL DEFAULT 0,
@@ -18,6 +19,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status_priority ON jobs (status, priority DESC, created_at)
     WHERE status = 'queued';
+
+CREATE INDEX IF NOT EXISTS idx_jobs_tenant_id ON jobs (tenant_id);
 
 CREATE TABLE IF NOT EXISTS worker_heartbeats (
     worker_id     TEXT PRIMARY KEY,

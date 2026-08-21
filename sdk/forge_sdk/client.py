@@ -36,6 +36,7 @@ class ForgeClient:
     def submit_job(
         self,
         idempotency_key: str,
+        tenant_id: str = "default",
         payload: Optional[Dict[str, Any]] = None,
         priority: int = 0,
         max_attempts: int = 3,
@@ -43,6 +44,7 @@ class ForgeClient:
         payload_data = payload or {}
         req_data = {
             "idempotency_key": idempotency_key,
+            "tenant_id": tenant_id,
             "payload": payload_data,
             "priority": priority,
             "max_attempts": max_attempts,
