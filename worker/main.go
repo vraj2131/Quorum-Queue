@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,11 +18,6 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5432/forge?sslmode=disable"
-	}
 
 	workerID := os.Getenv("WORKER_ID")
 	if workerID == "" {
@@ -43,6 +39,43 @@ func main() {
 		}
 	}()
 
+	exec := executor.NewExecutor(logger)
+
+	shardsConfigEnv := os.Getenv("SHARDS_CONFIG")
+	if shardsConfigEnv != "" {
+		shardsConfig := poller.ParseShardsConfig(shardsConfigEnv)
+		var assignedShards []string
+		if assignedEnv := os.Getenv("ASSIGNED_SHARDS"); assignedEnv != "" {
+			for _, s := range strings.Split(assignedEnv, ",") {
+				if trimmed := strings.TrimSpace(s); trimmed != "" {
+					assignedShards = append(assignedShards, trimmed)
+				}
+			}
+		}
+
+		multiPool, err := poller.NewMultiShardWorkerPool(workerID, shardsConfig, assignedShards, exec, logger)
+		if err != nil {
+			logger.Error("Failed to initialize multi-shard worker pool", "error", err)
+			os.Exit(1)
+		}
+
+		multiPool.Start()
+
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+
+		logger.Info("Shutdown signal received")
+		multiPool.Stop()
+		return
+	}
+
+	// Legacy single DB fallback
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://postgres:postgres@localhost:5432/forge?sslmode=disable"
+	}
+
 	database, err := db.Open(dbURL)
 	if err != nil {
 		logger.Error("Failed to connect to database", "error", err)
@@ -51,7 +84,6 @@ func main() {
 	defer database.Close()
 
 	store := db.NewStore(database)
-	exec := executor.NewExecutor(logger)
 
 	poolCfg := poller.Config{
 		WorkerID:          workerID,

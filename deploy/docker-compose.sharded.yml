@@ -1,0 +1,193 @@
+version: '3.8'
+
+services:
+  postgres-shard-1:
+    image: postgres:16-alpine
+    container_name: forge-postgres-shard-1
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: forge_shard_1
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d forge_shard_1"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  postgres-shard-2:
+    image: postgres:16-alpine
+    container_name: forge-postgres-shard-2
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: forge_shard_2
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d forge_shard_2"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  postgres-shard-3:
+    image: postgres:16-alpine
+    container_name: forge-postgres-shard-3
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: forge_shard_3
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d forge_shard_3"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  etcd1:
+    image: quay.io/coreos/etcd:v3.5.12
+    container_name: forge-etcd1
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd1
+      - --initial-advertise-peer-urls=http://etcd1:2380
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd1:2379
+      - --initial-cluster-token=etcd-cluster-1
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+    ports:
+      - "2379:2379"
+
+  etcd2:
+    image: quay.io/coreos/etcd:v3.5.12
+    container_name: forge-etcd2
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd2
+      - --initial-advertise-peer-urls=http://etcd2:2380
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd2:2379
+      - --initial-cluster-token=etcd-cluster-1
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+
+  etcd3:
+    image: quay.io/coreos/etcd:v3.5.12
+    container_name: forge-etcd3
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd3
+      - --initial-advertise-peer-urls=http://etcd3:2380
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd3:2379
+      - --initial-cluster-token=etcd-cluster-1
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+
+  scheduler1:
+    build:
+      context: ..
+      dockerfile: scheduler/Dockerfile
+    container_name: forge-scheduler-1
+    environment:
+      SHARDS_CONFIG: "shard-1=postgresql://postgres:postgres@postgres-shard-1:5432/forge_shard_1?sslmode=disable,shard-2=postgresql://postgres:postgres@postgres-shard-2:5432/forge_shard_2?sslmode=disable,shard-3=postgresql://postgres:postgres@postgres-shard-3:5432/forge_shard_3?sslmode=disable"
+      ETCD_ENDPOINTS: etcd1:2379,etcd2:2379,etcd3:2379
+      SCHEDULER_ID: scheduler-1
+    depends_on:
+      postgres-shard-1:
+        condition: service_healthy
+      postgres-shard-2:
+        condition: service_healthy
+      postgres-shard-3:
+        condition: service_healthy
+      etcd1:
+        condition: service_started
+
+  scheduler2:
+    build:
+      context: ..
+      dockerfile: scheduler/Dockerfile
+    container_name: forge-scheduler-2
+    environment:
+      SHARDS_CONFIG: "shard-1=postgresql://postgres:postgres@postgres-shard-1:5432/forge_shard_1?sslmode=disable,shard-2=postgresql://postgres:postgres@postgres-shard-2:5432/forge_shard_2?sslmode=disable,shard-3=postgresql://postgres:postgres@postgres-shard-3:5432/forge_shard_3?sslmode=disable"
+      ETCD_ENDPOINTS: etcd1:2379,etcd2:2379,etcd3:2379
+      SCHEDULER_ID: scheduler-2
+    depends_on:
+      postgres-shard-1:
+        condition: service_healthy
+      postgres-shard-2:
+        condition: service_healthy
+      postgres-shard-3:
+        condition: service_healthy
+      etcd1:
+        condition: service_started
+
+  worker1:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    container_name: forge-worker-1
+    environment:
+      SHARDS_CONFIG: "shard-1=postgresql://postgres:postgres@postgres-shard-1:5432/forge_shard_1?sslmode=disable,shard-2=postgresql://postgres:postgres@postgres-shard-2:5432/forge_shard_2?sslmode=disable,shard-3=postgresql://postgres:postgres@postgres-shard-3:5432/forge_shard_3?sslmode=disable"
+      WORKER_ID: worker-1
+      ASSIGNED_SHARDS: "shard-1"
+    depends_on:
+      postgres-shard-1:
+        condition: service_healthy
+
+  worker2:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    container_name: forge-worker-2
+    environment:
+      SHARDS_CONFIG: "shard-1=postgresql://postgres:postgres@postgres-shard-1:5432/forge_shard_1?sslmode=disable,shard-2=postgresql://postgres:postgres@postgres-shard-2:5432/forge_shard_2?sslmode=disable,shard-3=postgresql://postgres:postgres@postgres-shard-3:5432/forge_shard_3?sslmode=disable"
+      WORKER_ID: worker-2
+      ASSIGNED_SHARDS: "shard-2"
+    depends_on:
+      postgres-shard-2:
+        condition: service_healthy
+
+  worker3:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    container_name: forge-worker-3
+    environment:
+      SHARDS_CONFIG: "shard-1=postgresql://postgres:postgres@postgres-shard-1:5432/forge_shard_1?sslmode=disable,shard-2=postgresql://postgres:postgres@postgres-shard-2:5432/forge_shard_2?sslmode=disable,shard-3=postgresql://postgres:postgres@postgres-shard-3:5432/forge_shard_3?sslmode=disable"
+      WORKER_ID: worker-3
+      ASSIGNED_SHARDS: "shard-3"
+    depends_on:
+      postgres-shard-3:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: forge-api
+    ports:
+      - "8000:8000"
+    environment:
+      SHARDS_CONFIG: "shard-1=postgresql://postgres:postgres@postgres-shard-1:5432/forge_shard_1,shard-2=postgresql://postgres:postgres@postgres-shard-2:5432/forge_shard_2,shard-3=postgresql://postgres:postgres@postgres-shard-3:5432/forge_shard_3"
+      ETCD_ENDPOINTS: etcd1:2379,etcd2:2379,etcd3:2379
+      MAX_QUEUE_DEPTH: "1000"
+    depends_on:
+      postgres-shard-1:
+        condition: service_healthy
+      postgres-shard-2:
+        condition: service_healthy
+      postgres-shard-3:
+        condition: service_healthy

@@ -39,7 +39,7 @@ func (s *Store) ClaimNextJob(ctx context.Context, workerID string) (*models.Job,
 	defer tx.Rollback()
 
 	query := `
-		SELECT id, idempotency_key, payload, status, priority, attempts, max_attempts, worker_id, last_heartbeat, created_at, updated_at
+		SELECT id, idempotency_key, tenant_id, payload, status, priority, attempts, max_attempts, worker_id, last_heartbeat, created_at, updated_at
 		FROM jobs
 		WHERE status = $1
 		ORDER BY priority DESC, created_at ASC
@@ -54,6 +54,7 @@ func (s *Store) ClaimNextJob(ctx context.Context, workerID string) (*models.Job,
 	err = tx.QueryRowContext(ctx, query, models.StatusQueued).Scan(
 		&job.ID,
 		&job.IdempotencyKey,
+		&job.TenantID,
 		&job.Payload,
 		&job.Status,
 		&job.Priority,
@@ -228,7 +229,7 @@ func (s *Store) GetQueueDepth(ctx context.Context) (int, error) {
 
 func (s *Store) GetJobByID(ctx context.Context, jobID uuid.UUID) (*models.Job, error) {
 	query := `
-		SELECT id, idempotency_key, payload, status, priority, attempts, max_attempts, worker_id, last_heartbeat, created_at, updated_at
+		SELECT id, idempotency_key, tenant_id, payload, status, priority, attempts, max_attempts, worker_id, last_heartbeat, created_at, updated_at
 		FROM jobs
 		WHERE id = $1
 	`
@@ -239,6 +240,7 @@ func (s *Store) GetJobByID(ctx context.Context, jobID uuid.UUID) (*models.Job, e
 	err := s.DB.QueryRowContext(ctx, query, jobID).Scan(
 		&job.ID,
 		&job.IdempotencyKey,
+		&job.TenantID,
 		&job.Payload,
 		&job.Status,
 		&job.Priority,

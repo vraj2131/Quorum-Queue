@@ -1,7 +1,30 @@
 from typing import Any, Dict, Optional
 import psycopg
 from psycopg.rows import dict_row
-from app.config import settings
+from app.config import get_shards_map, settings
+from app.router import ConsistentHashRing
+
+_hash_ring: Optional[ConsistentHashRing] = None
+_shards_map: Dict[str, str] = {}
+
+
+def get_hash_ring() -> ConsistentHashRing:
+    global _hash_ring, _shards_map
+    if _hash_ring is None:
+        _shards_map = get_shards_map()
+        _hash_ring = ConsistentHashRing(vnodes_per_node=256)
+        for shard_id in _shards_map.keys():
+            _hash_ring.add_shard(shard_id)
+    return _hash_ring
+
+
+def get_db_connection_for_tenant(tenant_id: str) -> tuple[psycopg.Connection, str]:
+    shards_config = get_shards_map()
+    ring = get_hash_ring()
+    shard_id = ring.get_shard(tenant_id)
+    db_url = shards_config.get(shard_id, settings.database_url)
+    conn = psycopg.connect(db_url, row_factory=dict_row)
+    return conn, shard_id
 
 
 def get_db_connection():
@@ -18,12 +41,12 @@ def get_queue_depth(conn: psycopg.Connection) -> int:
 def create_job(
     conn: psycopg.Connection,
     idempotency_key: str,
+    tenant_id: str,
     payload: Dict[str, Any],
     priority: int = 0,
     max_attempts: int = 3,
 ) -> Dict[str, Any]:
     with conn.cursor() as cur:
-        # Check idempotency first
         cur.execute("SELECT * FROM jobs WHERE idempotency_key = %s", (idempotency_key,))
         existing = cur.fetchone()
         if existing:
@@ -31,11 +54,17 @@ def create_job(
 
         cur.execute(
             """
-            INSERT INTO jobs (idempotency_key, payload, status, priority, max_attempts)
-            VALUES (%s, %s, 'queued', %s, %s)
+            INSERT INTO jobs (idempotency_key, tenant_id, payload, status, priority, max_attempts)
+            VALUES (%s, %s, %s, 'queued', %s, %s)
             RETURNING *
             """,
-            (idempotency_key, psycopg.types.json.Jsonb(payload), priority, max_attempts),
+            (
+                idempotency_key,
+                tenant_id,
+                psycopg.types.json.Jsonb(payload),
+                priority,
+                max_attempts,
+            ),
         )
         new_job = cur.fetchone()
         conn.commit()

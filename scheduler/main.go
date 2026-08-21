@@ -14,6 +14,7 @@ import (
 	"github.com/forge/scheduler/reaper"
 	"github.com/forge/shared/db"
 	"github.com/forge/shared/metrics"
+	"github.com/forge/worker/poller"
 	"github.com/google/uuid"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -24,11 +25,6 @@ func main() {
 	schedulerID := os.Getenv("SCHEDULER_ID")
 	if schedulerID == "" {
 		schedulerID = "scheduler-" + uuid.New().String()[:8]
-	}
-
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgres://postgres:postgres@localhost:5432/forge?sslmode=disable"
 	}
 
 	etcdEndpointsEnv := os.Getenv("ETCD_ENDPOINTS")
@@ -52,15 +48,6 @@ func main() {
 		}
 	}()
 
-	database, err := db.Open(dbURL)
-	if err != nil {
-		logger.Error("Failed to connect to postgres", "error", err)
-		os.Exit(1)
-	}
-	defer database.Close()
-
-	store := db.NewStore(database)
-
 	etcdClient, err := clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,
 		DialTimeout: 5 * time.Second,
@@ -77,7 +64,35 @@ func main() {
 		ScanInterval:     3 * time.Second,
 		HeartbeatTimeout: 10 * time.Second,
 	}
-	reap := reaper.NewReaper(reaperCfg, store, elector, logger)
+
+	shardsConfigEnv := os.Getenv("SHARDS_CONFIG")
+	var multiReaper *reaper.MultiShardReaper
+	var singleReaper *reaper.Reaper
+	var database *db.Store
+
+	if shardsConfigEnv != "" {
+		shardsConfig := poller.ParseShardsConfig(shardsConfigEnv)
+		shardStore, err := db.NewShardStore(shardsConfig)
+		if err != nil {
+			logger.Error("Failed to connect to multi-shard database pool", "error", err)
+			os.Exit(1)
+		}
+		defer shardStore.Close()
+		multiReaper = reaper.NewMultiShardReaper(reaperCfg, shardStore, elector, logger)
+	} else {
+		dbURL := os.Getenv("DATABASE_URL")
+		if dbURL == "" {
+			dbURL = "postgres://postgres:postgres@localhost:5432/forge?sslmode=disable"
+		}
+		dbConn, err := db.Open(dbURL)
+		if err != nil {
+			logger.Error("Failed to connect to postgres", "error", err)
+			os.Exit(1)
+		}
+		defer dbConn.Close()
+		database = db.NewStore(dbConn)
+		singleReaper = reaper.NewReaper(reaperCfg, database, elector, logger)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -101,12 +116,20 @@ func main() {
 
 				// Elected leader: set metric to 1 and start reaper
 				metrics.LeaderStatus.WithLabelValues(schedulerID).Set(1)
-				reap.Start()
+				if multiReaper != nil {
+					multiReaper.Start()
+				} else if singleReaper != nil {
+					singleReaper.Start()
+				}
 
 				// Wait until campaign/session finishes or signal received
 				<-ctx.Done()
 				metrics.LeaderStatus.WithLabelValues(schedulerID).Set(0)
-				reap.Stop()
+				if multiReaper != nil {
+					multiReaper.Stop()
+				} else if singleReaper != nil {
+					singleReaper.Stop()
+				}
 				_ = elector.Resign(context.Background())
 				return
 			}
